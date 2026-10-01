@@ -15,9 +15,15 @@ public sealed record LoginRequest(
     [Required, EmailAddress, MaxLength(254)] string Email,
     [Required, MaxLength(200)] string Password);
 
-/// <summary>Credenciales devueltas al hacer login. Formato inspirado en OAuth 2.0.</summary>
+/// <summary>Usado por /auth/refresh y /auth/logout.</summary>
+public sealed record RefreshTokenRequest(
+    [Required, MaxLength(200)] string RefreshToken);
+
+/// <summary>Credenciales devueltas por login y refresh. Formato inspirado en OAuth 2.0.</summary>
 public sealed record TokenResponse(
     string AccessToken,
     string TokenType,
     int ExpiresIn,              // segundos de vida del access token
-    DateTime AccessTokenExpiresAt);
+    DateTime AccessTokenExpiresAt,
+    string RefreshToken,
+    DateTime RefreshTokenExpiresAt);

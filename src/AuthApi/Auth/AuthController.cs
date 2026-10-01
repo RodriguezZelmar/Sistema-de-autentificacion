@@ -29,4 +29,11 @@ public sealed class AuthController(AuthService auth) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
     public async Task<TokenResponse> Login(LoginRequest request, CancellationToken ct) =>
         await auth.LoginAsync(request, ct);
+
+    /// <summary>Obtiene un access token nuevo usando el refresh token (que se rota: el anterior deja de servir).</summary>
+    [HttpPost("refresh")]
+    [ProducesResponseType<TokenResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    public async Task<TokenResponse> Refresh(RefreshTokenRequest request, CancellationToken ct) =>
+        await auth.RefreshAsync(request, ct);
 }

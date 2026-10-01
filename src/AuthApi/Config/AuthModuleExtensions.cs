@@ -1,6 +1,7 @@
 using AuthApi.Auth;
 using AuthApi.Auth.Jwt;
 using AuthApi.Auth.Passwords;
+using AuthApi.Auth.Tokens;
 using AuthApi.Users;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
@@ -32,6 +33,7 @@ public static class AuthModuleExtensions
 
         services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
         services.AddSingleton<JwtTokenService>();
+        services.AddScoped<RefreshTokenService>();
         services.AddScoped<UserService>();
         services.AddScoped<AuthService>();
 

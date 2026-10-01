@@ -1,5 +1,6 @@
 using AuthApi.Auth.Jwt;
 using AuthApi.Auth.Passwords;
+using AuthApi.Auth.Tokens;
 using AuthApi.Authorization;
 using AuthApi.Common;
 using AuthApi.Data;
@@ -17,6 +18,7 @@ public sealed class AuthService(
     UserService users,
     IPasswordHasher hasher,
     JwtTokenService jwt,
+    RefreshTokenService refreshTokens,
     TimeProvider time,
     ILogger<AuthService> logger)
 {
@@ -49,15 +51,29 @@ public sealed class AuthService(
         if (!user.IsActive)
             throw ApiException.Forbidden("This account is disabled.");
 
-        // 4. Emitir credenciales.
-        var accessToken = jwt.CreateAccessToken(user);
+        // 4. Emitir credenciales: access token (corto, stateless) + refresh token (largo, guardado en la base).
+        var refreshToken = await refreshTokens.IssueAsync(user, ct);
         logger.LogInformation("User {UserId} logged in", user.Id);
-        return ToTokenResponse(accessToken);
+        return ToTokenResponse(jwt.CreateAccessToken(user), refreshToken);
     }
 
-    private TokenResponse ToTokenResponse(AccessToken accessToken) => new(
+    /// <summary>
+    /// Canjea un refresh token válido por credenciales nuevas, sin volver a pedir la contraseña.
+    /// El refresh token usado queda revocado (rotación).
+    /// </summary>
+    public async Task<TokenResponse> RefreshAsync(RefreshTokenRequest request, CancellationToken ct)
+    {
+        var (user, newRefreshToken) = await refreshTokens.RotateAsync(request.RefreshToken, ct);
+
+        // El access token nuevo se genera con los datos ACTUALES del usuario (p. ej. si cambió su rol).
+        return ToTokenResponse(jwt.CreateAccessToken(user), newRefreshToken);
+    }
+
+    private TokenResponse ToTokenResponse(AccessToken accessToken, IssuedRefreshToken refreshToken) => new(
         accessToken.Token,
         "Bearer",
         (int)(accessToken.ExpiresAt - time.GetUtcNow().UtcDateTime).TotalSeconds,
-        accessToken.ExpiresAt);
+        accessToken.ExpiresAt,
+        refreshToken.Token,
+        refreshToken.ExpiresAt);
 }

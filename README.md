@@ -23,6 +23,7 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [Flujo de login](#flujo-de-login)
 - [JWT](#jwt)
 - [Middleware de autenticación](#middleware-de-autenticación)
+- [Refresh tokens](#refresh-tokens)
 
 ---
 
@@ -184,7 +185,10 @@ POST /auth/login  { "email", "password" }
   ↓
 4. Generar access token (JWT, 15 min)
   ↓
-5. 200 { accessToken, tokenType: "Bearer", expiresIn, accessTokenExpiresAt, ... }
+5. Generar refresh token (aleatorio, 7 días) y guardar SOLO su hash SHA-256
+  ↓
+6. 200 { accessToken, tokenType: "Bearer", expiresIn, accessTokenExpiresAt,
+         refreshToken, refreshTokenExpiresAt }
 ```
 
 ---
@@ -273,3 +277,63 @@ con `User.GetUserId()`:
 public async Task<UserResponse> Me(CancellationToken ct) =>
     UserResponse.From(await users.GetByIdAsync(User.GetUserId(), ct));
 ```
+
+---
+
+## Refresh tokens
+
+### ¿Por qué existen dos tokens?
+
+```text
+Access Token  (JWT)                         Refresh Token  (string aleatorio)
+    ↓                                           ↓
+vida corta (15 min)                         vida más larga (7 días)
+    ↓                                           ↓
+se envía en CADA request a recursos         se envía SOLO a POST /auth/refresh
+protegidos (Authorization: Bearer)              ↓
+    ↓                                       se usa para obtener un nuevo Access Token
+stateless: el servidor solo verifica        stateful: está en la base → se puede REVOCAR
+la firma → no se puede revocar
+```
+
+Es un compromiso entre **seguridad** y **comodidad**:
+- Si el access token durara días, uno robado serviría días, y no hay forma de invalidarlo (es stateless).
+- Si durara 15 minutos y no hubiera refresh, el usuario tendría que escribir la contraseña cada 15 minutos.
+- Con ambos: el token que viaja en todos los requests (el más expuesto) vive poco, y la sesión larga
+  depende de un token que viaja poco y que el servidor **sí controla** (puede revocarlo en logout,
+  al cambiar la contraseña o si detecta robo).
+
+### Flujo de refresh
+
+```text
+POST /auth/refresh  { "refreshToken": "..." }
+  ↓
+1. Hashear el token recibido (SHA-256) y buscarlo en RefreshTokens
+     no existe                       → 401
+  ↓
+2. ¿RevokedAt != null?  → REUTILIZACIÓN detectada → revocar TODAS las sesiones del usuario → 401
+  ↓
+3. ¿ExpiresAt <= ahora? → 401
+  ↓
+4. ¿Usuario activo? No → 403
+  ↓
+5. ROTACIÓN: marcar el token actual como revocado y emitir uno nuevo
+  ↓
+6. 200 { accessToken nuevo, refreshToken nuevo, ... }
+```
+
+### Decisiones de seguridad ([`RefreshTokenService`](src/AuthApi/Auth/Tokens/RefreshTokenService.cs))
+
+- **Valor opaco y aleatorio**: 512 bits de `RandomNumberGenerator` (CSPRNG). No es un JWT: no
+  contiene datos y solo tiene sentido para este servidor.
+- **Solo se guarda el hash SHA-256**: si se filtra la base, los hashes no se pueden usar como tokens.
+  SHA-256 es suficiente (no hace falta BCrypt) porque el token tiene 512 bits de entropía:
+  imposible de adivinar. Y al ser determinístico permite buscarlo por índice.
+- **Rotación**: cada refresh token sirve una sola vez. Cada uso devuelve uno nuevo.
+- **Detección de reutilización**: si llega un token ya rotado, alguien tiene una copia (¿robo?).
+  Como no se puede saber quién es el legítimo, se revocan todas las sesiones del usuario y debe
+  volver a hacer login.
+- **Mismo mensaje** para token inexistente, expirado o revocado.
+
+Simplificación: el refresh token viaja en el body JSON. En una aplicación web real conviene
+enviarlo en una cookie `HttpOnly; Secure; SameSite=Strict` para que JavaScript no pueda leerlo.
