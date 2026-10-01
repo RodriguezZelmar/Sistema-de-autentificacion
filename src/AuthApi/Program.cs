@@ -39,6 +39,7 @@ else
     app.UseHttpsRedirection();
 }
 
+app.UseRateLimiter();      // límite de intentos en /auth/*
 app.UseAuthentication();   // 1° ¿quién sos?  (lee y valida el JWT)
 app.UseAuthorization();    // 2° ¿qué podés hacer? (aplica [Authorize] / permisos)
 

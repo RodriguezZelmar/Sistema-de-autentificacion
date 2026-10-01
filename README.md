@@ -29,6 +29,7 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [Autorización y 401 vs 403](#autorización-y-401-vs-403)
 - [Usuario administrador de demo](#usuario-administrador-de-demo)
 - [Recuperación de contraseña](#recuperación-de-contraseña)
+- [Seguridad](#seguridad)
 
 ---
 
@@ -550,3 +551,43 @@ desconocido, revoca sesiones, modo producción sin token en la respuesta…).
 
 Simplificación conocida: en modo demo, que la respuesta incluya o no el token revela si el email existe.
 Con `PASSWORD_RESET_EXPOSE_TOKEN=false` la respuesta es idéntica en ambos casos.
+
+---
+
+## Seguridad
+
+### Medidas implementadas
+
+| Riesgo | Medida | Dónde |
+|---|---|---|
+| Contraseñas filtradas desde la base | BCrypt con salt por usuario y work factor configurable; nunca texto plano | `BcryptPasswordHasher` |
+| Exposición del hash | Las entidades nunca se serializan: solo DTOs (`UserResponse`) sin `PasswordHash` | `Users/UserDtos.cs` |
+| Secretos en el código | `JWT_SECRET`, credenciales del admin, etc. vienen de variables de entorno / `.env` (ignorado por git). La app no arranca sin un `JWT_SECRET` de ≥ 32 caracteres | `AuthOptions`, `.env.example` |
+| SQL injection | Todo el acceso a datos es vía EF Core/LINQ → consultas parametrizadas. No hay SQL concatenado | `Data/`, services |
+| Entrada inválida | DataAnnotations + `[ApiController]` → 400 automático; política de contraseñas; longitudes máximas | DTOs, `PasswordPolicyAttribute` |
+| Usuarios duplicados | Email normalizado (trim + minúsculas) + verificación previa + **índice único** en la base | `UserService`, `AppDbContext` |
+| Escalada de privilegios en el registro | El DTO de registro no tiene `role`; siempre se asigna USER | `AuthService.RegisterAsync` |
+| Tokens alterados / falsificados | Firma HS256 verificada, algoritmo fijo (rechaza `alg: none`), issuer y audience validados | `JwtTokenService` |
+| Tokens expirados | `exp` validado (access); `ExpiresAt` validado (refresh y reset) | JwtBearer, services |
+| Robo de access token | Vida corta (15 min) y payload sin datos sensibles | `AuthOptions` |
+| Robo de refresh token | Guardado como hash, rotación en cada uso, detección de reutilización, revocable | `RefreshTokenService` |
+| Refresh tokens revocados | `RevokedAt` comprobado en cada refresh; logout, reset y cambio de rol revocan | `RefreshTokenService` |
+| Reutilización de tokens de recuperación | `UsedAt` + `UPDATE` atómico condicional; pedir uno nuevo borra los anteriores | `PasswordResetService` |
+| Enumeración de usuarios | Login: mismo mensaje y hash ficticio para emails inexistentes (mismo tiempo). Forgot-password: mismo mensaje siempre | `AuthService` |
+| Fuerza bruta | Rate limiting por IP en `/auth/*` (`AUTH_RATE_LIMIT_PER_MINUTE`, por defecto 10/min) → 429 | `AuthModuleExtensions` |
+| Contraseñas / tokens en logs | Solo se loguean ids de usuario, nunca contraseñas ni tokens | services |
+| Fuga de detalles internos | Errores inesperados → 500 genérico (el detalle queda solo en el log del servidor). Errores esperados → ProblemDetails | `GlobalExceptionHandler` |
+| Transporte | `UseHttpsRedirection` fuera de Development | `Program.cs` |
+
+### Simplificaciones de este proyecto (y qué haría en producción)
+
+- **Recuperación de contraseña sin email**: el token se devuelve en la respuesta en modo demo. → Enviar email y `PASSWORD_RESET_EXPOSE_TOKEN=false`.
+- **Revocación de access tokens**: un JWT emitido vale hasta expirar (máx. 15 min), aun después de logout o cambio de rol. → Denylist de `jti` en Redis o "versión de sesión" por usuario si se necesita revocación inmediata.
+- **Refresh token en el body**: → Cookie `HttpOnly; Secure; SameSite=Strict` en clientes web.
+- **HS256 (clave simétrica)**: cualquier servicio que valide tokens necesita el secreto. → Con varios servicios, RS256/ES256 (firma con clave privada, validación con la pública, publicada vía JWKS).
+- **Rate limiting en memoria y por IP**: no se comparte entre instancias. → Redis o el API gateway. Se puede complementar con bloqueo temporal de cuenta tras N intentos fallidos.
+- **Sin verificación de email** al registrarse, ni MFA.
+- **Concurrencia en refresh**: dos refresh simultáneos con el mismo token podrían rotar ambos. Se podría usar el mismo `UPDATE` condicional que en reset-password.
+- **Limpieza de tokens**: los refresh/reset tokens expirados quedan en la base. → Job periódico que los borre.
+- **Migraciones al arrancar**: cómodo para la demo. → En producción, aplicarlas en el pipeline de despliegue.
+- **SQLite**: → PostgreSQL / SQL Server cambiando el provider de EF Core.

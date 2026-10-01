@@ -1,5 +1,7 @@
+using AuthApi.Config;
 using AuthApi.Users;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace AuthApi.Auth;
 
@@ -9,6 +11,8 @@ namespace AuthApi.Auth;
 /// </summary>
 [ApiController]
 [Route("auth")]
+[EnableRateLimiting(AuthModuleExtensions.AuthRateLimitPolicy)]
+[ProducesResponseType(StatusCodes.Status429TooManyRequests)]
 public sealed class AuthController(AuthService auth) : ControllerBase
 {
     /// <summary>Registra un usuario nuevo con rol USER.</summary>

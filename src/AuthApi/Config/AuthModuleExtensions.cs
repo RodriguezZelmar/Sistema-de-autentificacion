@@ -1,3 +1,4 @@
+using System.Threading.RateLimiting;
 using AuthApi.Auth;
 using AuthApi.Auth.Jwt;
 using AuthApi.Auth.Passwords;
@@ -17,6 +18,8 @@ namespace AuthApi.Config;
 /// </summary>
 public static class AuthModuleExtensions
 {
+    public const string AuthRateLimitPolicy = "auth";
+
     public static IServiceCollection AddAuthModule(this IServiceCollection services, IConfiguration config)
     {
         services.AddOptions<AuthOptions>()
@@ -33,6 +36,19 @@ public static class AuthModuleExtensions
         // Authorization: ¿qué tenés permitido hacer?
         services.AddAuthorization();
         services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+
+        // Rate limiting de /auth/*: frena ataques de fuerza bruta contra login, reset, etc.
+        services.AddRateLimiter(limiter =>
+        {
+            limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            limiter.AddPolicy(AuthRateLimitPolicy, http => RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey: http.Connection.RemoteIpAddress?.ToString() ?? "unknown", // un contador por IP
+                factory: _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = http.RequestServices.GetRequiredService<IOptions<AuthOptions>>().Value.AuthRateLimitPerMinute,
+                    Window = TimeSpan.FromMinutes(1)
+                }));
+        });
 
         services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
         services.AddSingleton<JwtTokenService>();
