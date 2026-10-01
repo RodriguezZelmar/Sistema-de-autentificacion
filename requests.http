@@ -1,0 +1,140 @@
+### Demo de la API de autenticación/autorización.
+### Ejecutable con la extensión "REST Client" de VS Code, JetBrains Rider o Visual Studio.
+### Ejecutá los requests en orden: cada uno reutiliza datos de las respuestas anteriores.
+
+@baseUrl = http://localhost:5080
+@adminEmail = admin@example.com
+@adminPassword = change-me-Admin123
+
+### 1. Registro (el "role" enviado se ignora: siempre USER) → 201
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "ana@example.com",
+  "password": "Password123",
+  "name": "Ana",
+  "role": "ADMIN"
+}
+
+### 2. Login como USER → 200 con accessToken + refreshToken
+# @name userLogin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "ana@example.com",
+  "password": "Password123"
+}
+
+### 3. AUTENTICACIÓN: perfil propio con token válido → 200 (muestra permisos: users:read)
+GET {{baseUrl}}/users/me
+Authorization: Bearer {{userLogin.response.body.$.accessToken}}
+
+### 4. Sin token → 401 Unauthorized
+GET {{baseUrl}}/users/me
+
+### 5. AUTORIZACIÓN: USER tiene users:read → 200
+GET {{baseUrl}}/users
+Authorization: Bearer {{userLogin.response.body.$.accessToken}}
+
+### 6. AUTORIZACIÓN: USER NO tiene users:delete → 403 Forbidden
+DELETE {{baseUrl}}/users/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{userLogin.response.body.$.accessToken}}
+
+### 7. Refresh: nuevo access token sin contraseña (el refresh token se rota) → 200
+# @name refreshed
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{userLogin.response.body.$.refreshToken}}"
+}
+
+### 8. Reusar el refresh token viejo → 401 (y se revocan todas las sesiones de Ana)
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{userLogin.response.body.$.refreshToken}}"
+}
+
+### 9. Login como ADMIN (sembrado desde ADMIN_EMAIL / ADMIN_PASSWORD)
+# @name adminLogin
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+
+### 10. ADMIN crea un usuario → 201
+# @name created
+POST {{baseUrl}}/users
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "email": "bob@example.com",
+  "password": "Password123",
+  "name": "Bob",
+  "role": "USER"
+}
+
+### 11. ADMIN actualiza el usuario → 200
+PUT {{baseUrl}}/users/{{created.response.body.$.id}}
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+Content-Type: application/json
+
+{
+  "name": "Bob Updated"
+}
+
+### 12. ADMIN elimina el usuario → 204
+DELETE {{baseUrl}}/users/{{created.response.body.$.id}}
+Authorization: Bearer {{adminLogin.response.body.$.accessToken}}
+
+### 13. Logout del admin: revoca su refresh token → 204
+POST {{baseUrl}}/auth/logout
+Content-Type: application/json
+
+{
+  "refreshToken": "{{adminLogin.response.body.$.refreshToken}}"
+}
+
+### 14. Recuperación: pedir token (en modo demo viene en la respuesta) → 200
+# @name forgot
+POST {{baseUrl}}/auth/forgot-password
+Content-Type: application/json
+
+{
+  "email": "ana@example.com"
+}
+
+### 15. Cambiar la contraseña con el token → 204
+POST {{baseUrl}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "{{forgot.response.body.$.resetToken}}",
+  "newPassword": "NewPassword456"
+}
+
+### 16. Reusar el mismo token → 400 (es de un solo uso)
+POST {{baseUrl}}/auth/reset-password
+Content-Type: application/json
+
+{
+  "token": "{{forgot.response.body.$.resetToken}}",
+  "newPassword": "OtherPassword789"
+}
+
+### 17. Login con la contraseña nueva → 200
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "ana@example.com",
+  "password": "NewPassword456"
+}

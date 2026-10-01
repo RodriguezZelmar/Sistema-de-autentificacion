@@ -30,6 +30,11 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [Usuario administrador de demo](#usuario-administrador-de-demo)
 - [Recuperación de contraseña](#recuperación-de-contraseña)
 - [Seguridad](#seguridad)
+- [Variables de entorno](#variables-de-entorno)
+- [Cómo ejecutar](#cómo-ejecutar)
+- [Cómo ejecutar los tests](#cómo-ejecutar-los-tests)
+- [Cómo probar la API](#cómo-probar-la-api)
+- [Reutilizar el módulo en otro proyecto](#reutilizar-el-módulo-en-otro-proyecto)
 
 ---
 
@@ -591,3 +596,202 @@ Con `PASSWORD_RESET_EXPOSE_TOKEN=false` la respuesta es idéntica en ambos casos
 - **Limpieza de tokens**: los refresh/reset tokens expirados quedan en la base. → Job periódico que los borre.
 - **Migraciones al arrancar**: cómodo para la demo. → En producción, aplicarlas en el pipeline de despliegue.
 - **SQLite**: → PostgreSQL / SQL Server cambiando el provider de EF Core.
+
+---
+
+## Variables de entorno
+
+Definidas en [`.env.example`](.env.example). En desarrollo se copian a `.env` (ignorado por git), que
+se carga al arrancar con [DotNetEnv](https://github.com/tonerdo/dotnet-env). Una variable de entorno
+real siempre tiene prioridad sobre el `.env`.
+
+| Variable | Default | Descripción |
+|---|---|---|
+| `JWT_SECRET` | — (**obligatoria**) | Clave HMAC para firmar los JWT. ≥ 32 caracteres aleatorios |
+| `JWT_ISSUER` | `auth-api` | Claim `iss` emitido y exigido |
+| `JWT_AUDIENCE` | `auth-api-clients` | Claim `aud` emitido y exigido |
+| `JWT_ACCESS_TOKEN_MINUTES` | `15` | Vida del access token |
+| `REFRESH_TOKEN_DAYS` | `7` | Vida del refresh token |
+| `PASSWORD_RESET_TOKEN_MINUTES` | `15` | Vida del token de recuperación |
+| `PASSWORD_RESET_EXPOSE_TOKEN` | `false` | `true` = devuelve el token de recuperación en la respuesta (**solo demo**) |
+| `BCRYPT_WORK_FACTOR` | `12` | Costo de BCrypt (2^n) |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | `10` | Requests por minuto y por IP a `/auth/*` |
+| `DATABASE_CONNECTION` | `Data Source=auth.db` | Cadena de conexión SQLite |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | — | Si ambas existen, se crea ese usuario ADMIN al arrancar |
+
+Generar un `JWT_SECRET` aleatorio:
+
+```bash
+openssl rand -base64 48
+```
+
+o en PowerShell:
+
+```powershell
+$b = New-Object byte[] 48; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); [Convert]::ToBase64String($b)
+```
+
+---
+
+## Cómo ejecutar
+
+Requisito único: [.NET 10 SDK](https://dotnet.microsoft.com/download). No hace falta instalar una
+base de datos (SQLite es un archivo).
+
+```bash
+# 1. Clonar y entrar al proyecto
+git clone <url-del-repo> auth-api
+cd auth-api
+
+# 2. Crear el archivo de configuración local
+cp .env.example .env
+#    y editar .env: JWT_SECRET=<salida de openssl rand -base64 48>
+
+# 3. Levantar la API
+dotnet run --project src/AuthApi
+```
+
+Al arrancar, la API:
+1. Lee la configuración (falla con un mensaje claro si falta `JWT_SECRET`).
+2. **Crea la base de datos desde cero** aplicando las migraciones de EF Core (`src/AuthApi/auth.db`).
+3. Crea el usuario ADMIN de demo con `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+4. Escucha en **http://localhost:5080**.
+
+En Development también expone:
+- **http://localhost:5080/scalar** — UI interactiva para probar los endpoints (botón *Auth* → pegar el access token).
+- **http://localhost:5080/openapi/v1.json** — especificación OpenAPI.
+
+Para empezar con una base limpia, basta con borrar `src/AuthApi/auth.db` y volver a arrancar.
+Las migraciones también pueden aplicarse a mano con la herramienta local de EF Core:
+
+```bash
+dotnet tool restore
+dotnet ef database update --project src/AuthApi
+```
+
+---
+
+## Cómo ejecutar los tests
+
+```bash
+dotnet test
+```
+
+Son principalmente **tests de integración**: cada test levanta la API real en memoria con
+`WebApplicationFactory`, con su propia base SQLite temporal y un **reloj falso** (`FakeTimeProvider`)
+que permite "adelantar el tiempo" para probar expiraciones sin esperar. No necesitan `.env`.
+
+| Archivo | Qué demuestra |
+|---|---|
+| `RegistrationTests` | registro exitoso, email duplicado, contraseña inválida, contraseña guardada como hash, `role` ignorado |
+| `LoginTests` | credenciales correctas, contraseña incorrecta, usuario inexistente (mismo mensaje), cuenta desactivada |
+| `JwtAuthenticationTests` | token válido, expirado, malformado, firmado con otra clave, payload alterado, `alg: none`, sin token, payload sin datos sensibles |
+| `AuthorizationTests` | USER con permiso (200), USER sin permiso (403), sin token (401), ADMIN con todos los permisos |
+| `PermissionHandlerTests` | tests unitarios del mapa rol → permisos y del handler |
+| `RefreshTokenTests` | refresh válido, expirado, revocado, desconocido, reutilización detectada, guardado como hash |
+| `LogoutTests` | revoca el refresh token, solo esa sesión, idempotente, el access token sigue vigente |
+| `PasswordResetTests` | token válido, expirado, ya usado, desconocido, revoca sesiones, invalidación del anterior |
+| `RateLimitTests` | 429 al superar el límite |
+
+---
+
+## Cómo probar la API
+
+**Opción 1 — archivo [`requests.http`](requests.http)**: un recorrido completo (registro → login →
+401 → 403 → refresh → admin → logout → recuperación de contraseña), ejecutable desde VS Code con la
+extensión *REST Client*, Rider o Visual Studio. Cada request reutiliza datos de los anteriores.
+
+**Opción 2 — Scalar** en http://localhost:5080/scalar.
+
+**Opción 3 — curl:**
+
+```bash
+# Registro
+curl -X POST http://localhost:5080/auth/register -H "Content-Type: application/json" \
+     -d '{"email":"ana@example.com","password":"Password123","name":"Ana"}'
+
+# Login → copiar accessToken y refreshToken
+curl -X POST http://localhost:5080/auth/login -H "Content-Type: application/json" \
+     -d '{"email":"ana@example.com","password":"Password123"}'
+
+# Endpoint protegido
+curl http://localhost:5080/users/me -H "Authorization: Bearer <accessToken>"
+
+# Refresh
+curl -X POST http://localhost:5080/auth/refresh -H "Content-Type: application/json" \
+     -d '{"refreshToken":"<refreshToken>"}'
+```
+
+### Referencia de endpoints
+
+| Endpoint | Body | Éxito | Errores |
+|---|---|---|---|
+| `POST /auth/register` | `{ email, password, name? }` | 201 `UserResponse` | 400 validación · 409 email existente |
+| `POST /auth/login` | `{ email, password }` | 200 `TokenResponse` | 400 · 401 credenciales · 403 cuenta desactivada |
+| `POST /auth/refresh` | `{ refreshToken }` | 200 `TokenResponse` (refresh rotado) | 401 inválido/expirado/revocado · 403 cuenta desactivada |
+| `POST /auth/logout` | `{ refreshToken }` | 204 | 400 |
+| `POST /auth/forgot-password` | `{ email }` | 200 `{ message, resetToken?, resetTokenExpiresAt? }` | 400 |
+| `POST /auth/reset-password` | `{ token, newPassword }` | 204 | 400 token inválido/expirado/usado o contraseña débil |
+| `GET /users/me` | — | 200 `{ user, permissions }` | 401 |
+| `GET /users` | — | 200 `UserResponse[]` | 401 · 403 |
+| `POST /users` | `{ email, password, name?, role? }` | 201 `UserResponse` | 400 · 401 · 403 · 409 |
+| `PUT /users/{id}` | `{ name?, role?, isActive? }` | 200 `UserResponse` | 400 · 401 · 403 · 404 |
+| `DELETE /users/{id}` | — | 204 | 400 · 401 · 403 · 404 |
+
+Todos los endpoints `/auth/*` pueden responder **429** si se supera el rate limit. Los errores usan
+el formato `application/problem+json`.
+
+Ejemplo de `TokenResponse`:
+
+```json
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "tokenType": "Bearer",
+  "expiresIn": 900,
+  "accessTokenExpiresAt": "2026-10-01T22:15:00Z",
+  "refreshToken": "kq3V9rJ0...",
+  "refreshTokenExpiresAt": "2026-10-08T22:00:00Z"
+}
+```
+
+---
+
+## Reutilizar el módulo en otro proyecto
+
+El módulo no sabe nada de "tiendas" ni de "juegos": solo de usuarios, credenciales, tokens y permisos.
+Para incorporarlo a otra API:
+
+1. Copiar `Auth/`, `Authorization/`, `Config/`, `Common/`, las entidades de `Data/Entities/` y
+   `Users/UserService.cs` (+ DTOs).
+2. Agregar los tres `DbSet` y su configuración al `DbContext` del proyecto y generar una migración.
+3. En `Program.cs`:
+   ```csharp
+   builder.Services.AddAuthModule(builder.Configuration);
+   // ...
+   app.UseRateLimiter();
+   app.UseAuthentication();
+   app.UseAuthorization();
+   ```
+4. Definir los permisos del nuevo dominio y mapearlos a roles:
+   ```csharp
+   public const string ProductsWrite = "products:write";
+   [Roles.Admin] = { ..., Permissions.ProductsWrite }
+   ```
+5. Proteger los endpoints del nuevo dominio:
+   ```csharp
+   [HttpPost("/products")]
+   [RequirePermission(Permissions.ProductsWrite)]
+   public IActionResult CreateProduct(...) { var userId = User.GetUserId(); ... }
+   ```
+
+| Pieza | Se reutiliza tal cual | Se adapta por proyecto |
+|---|---|---|
+| `IPasswordHasher` / `BcryptPasswordHasher` | ✔ | |
+| `JwtTokenService`, `JwtBearerSetup` | ✔ | claims extra si hicieran falta |
+| `RefreshTokenService`, `PasswordResetService`, `OpaqueToken` | ✔ | envío real de email |
+| `RequirePermissionAttribute`, `PermissionAuthorizationHandler` | ✔ | |
+| `Roles`, `Permissions`, `RolePermissions` | | ✔ el catálogo de cada dominio |
+| `UsersController` | | es solo la demo |
+
+El siguiente paso natural sería convertirlo en una *class library* (`AuthModule.csproj`) con una
+interfaz para el almacén de usuarios, y publicarlo como paquete NuGet interno.
