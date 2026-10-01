@@ -51,7 +51,7 @@ public class LoginTests : TestBase
     public async Task Login_WithDisabledAccount_Returns403()
     {
         await RegisterAsync("ana@example.com");
-        await WithDbAsync(db => db.Users.ExecuteUpdateAsync(s => s.SetProperty(u => u.IsActive, false)));
+        await WithDbAsync(db => db.Users.Where(u => u.Email == "ana@example.com").ExecuteUpdateAsync(s => s.SetProperty(u => u.IsActive, false)));
 
         var response = await LoginAsync("ana@example.com");
 

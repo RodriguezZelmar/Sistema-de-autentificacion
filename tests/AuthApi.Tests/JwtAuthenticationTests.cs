@@ -42,7 +42,7 @@ public class JwtAuthenticationTests : TestBase
     public async Task ProtectedEndpoint_WithExpiredToken_Returns401()
     {
         await RegisterAsync("ana@example.com");
-        var user = await WithDbAsync(db => db.Users.SingleAsync());
+        var user = await WithDbAsync(db => db.Users.SingleAsync(u => u.Email == "ana@example.com"));
 
         // Token emitido hace 1 hora con vida de 15 minutos → expiró hace 45 minutos.
         var pastClock = new FakeTimeProvider(DateTimeOffset.UtcNow.AddHours(-1));
@@ -67,7 +67,7 @@ public class JwtAuthenticationTests : TestBase
     public async Task ProtectedEndpoint_WithTokenSignedWithAnotherSecret_Returns401()
     {
         await RegisterAsync("ana@example.com");
-        var user = await WithDbAsync(db => db.Users.SingleAsync());
+        var user = await WithDbAsync(db => db.Users.SingleAsync(u => u.Email == "ana@example.com"));
         var attackerOptions = Options.Create(new AuthOptions { JwtSecret = "attacker-secret-attacker-secret-attacker-secret" });
         var forged = new JwtTokenService(attackerOptions, TimeProvider.System).CreateAccessToken(user);
 

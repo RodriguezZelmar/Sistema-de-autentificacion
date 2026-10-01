@@ -27,6 +27,7 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [Flujo de logout](#flujo-de-logout)
 - [Roles y permisos](#roles-y-permisos)
 - [Autorización y 401 vs 403](#autorización-y-401-vs-403)
+- [Usuario administrador de demo](#usuario-administrador-de-demo)
 
 ---
 
@@ -467,3 +468,28 @@ Puede acceder (2xx)
 | **403 Forbidden** | La identidad es válida pero no tiene permiso. | `DELETE /users/{id}` con un token de USER |
 
 Ambos devuelven un cuerpo `application/problem+json` (RFC 9457) con el motivo.
+
+---
+
+## Usuario administrador de demo
+
+El registro público **siempre** crea usuarios `USER`. El DTO de registro ni siquiera tiene una
+propiedad `role`, así que enviar `{"role": "ADMIN"}` no tiene efecto (hay un test que lo verifica:
+`Register_IgnoresRoleSentByClient`).
+
+¿Cómo se obtiene entonces un ADMIN? De dos formas controladas:
+
+1. **Seed al arrancar** ([`DatabaseInitializer`](src/AuthApi/Data/DatabaseInitializer.cs)): si las
+   variables `ADMIN_EMAIL` y `ADMIN_PASSWORD` están definidas y ese usuario no existe, se crea con rol
+   ADMIN. La contraseña debe cumplir la misma política que cualquier otra. En producción basta con no
+   definirlas (o eliminarlas después del primer arranque).
+2. **Un ADMIN existente** crea o promueve usuarios con `POST /users` o `PUT /users/{id}`
+   (permisos `users:create` / `users:update`).
+
+Reglas de los endpoints de administración ([`UserService`](src/AuthApi/Users/UserService.cs)):
+- Un rol desconocido → 400.
+- Un admin no puede cambiar su propio rol, desactivarse ni eliminarse (evita quedarse sin admin) → 400.
+- Al cambiar el rol de un usuario o desactivarlo, se **revocan todos sus refresh tokens**: para seguir
+  usando la API debe volver a hacer login, y su nuevo token reflejará el rol nuevo. Su access token
+  actual sigue vigente hasta expirar (máx. 15 min) — la misma limitación que en logout.
+- Al eliminar un usuario, sus refresh tokens y tokens de recuperación se borran en cascada.
