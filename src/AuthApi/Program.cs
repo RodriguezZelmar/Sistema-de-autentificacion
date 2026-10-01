@@ -16,8 +16,10 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
 
-builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration["DATABASE_CONNECTION"] ?? "Data Source=auth.db"));
+// La cadena de conexión se resuelve de forma diferida (cuando se crea el DbContext),
+// así los tests pueden reemplazarla por una base temporal.
+builder.Services.AddDbContext<AppDbContext>((sp, options) =>
+    options.UseSqlite(sp.GetRequiredService<IConfiguration>()["DATABASE_CONNECTION"] ?? "Data Source=auth.db"));
 
 builder.Services.AddAuthModule(builder.Configuration);
 

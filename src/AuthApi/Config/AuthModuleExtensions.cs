@@ -1,3 +1,7 @@
+using AuthApi.Auth;
+using AuthApi.Auth.Passwords;
+using AuthApi.Users;
+
 namespace AuthApi.Config;
 
 /// <summary>
@@ -15,6 +19,10 @@ public static class AuthModuleExtensions
             .Validate(o => o.AccessTokenMinutes > 0 && o.RefreshTokenDays > 0 && o.PasswordResetTokenMinutes > 0,
                 "Token lifetimes must be positive.")
             .ValidateOnStart();
+
+        services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
+        services.AddScoped<UserService>();
+        services.AddScoped<AuthService>();
 
         return services;
     }

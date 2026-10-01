@@ -19,6 +19,7 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [Arquitectura](#arquitectura)
 - [Modelo de datos](#modelo-de-datos)
 - [Endpoints](#endpoints)
+- [Flujo de registro](#flujo-de-registro)
 
 ---
 
@@ -74,7 +75,7 @@ Estructura del proyecto:
 src/AuthApi/
 ├── Auth/            Registro, login, refresh, logout, recuperación de contraseña
 ├── Authorization/   Roles, permisos y el "guard" que verifica permisos
-├── Users/           Recurso de DEMO protegido (/users)
+├── Users/           UserService (almacén de identidades, lo usa Auth) + recurso de DEMO /users
 ├── Data/            DbContext, entidades, migraciones, seed del admin
 ├── Config/          Opciones leídas de variables de entorno + AddAuthModule()
 ├── Common/          Errores de negocio y manejador global de excepciones
@@ -123,3 +124,41 @@ UpdatedAt
 | POST | `/users` | `users:create` | Crear usuario (puede elegir rol) |
 | PUT | `/users/{id}` | `users:update` | Actualizar usuario |
 | DELETE | `/users/{id}` | `users:delete` | Eliminar usuario |
+
+---
+
+## Flujo de registro
+
+```text
+POST /auth/register  { "email", "password", "name"? }
+  ↓
+1. Validar entrada (DataAnnotations + [ApiController])   → 400 si es inválida
+     email válido · password 8-72 caracteres con letra y número
+  ↓
+2. Normalizar email (trim + minúsculas) y comprobar que no exista → 409 si existe
+  ↓
+3. Hashear la contraseña con BCrypt (salt aleatorio + work factor)
+  ↓
+4. Guardar el usuario (índice único en Email como garantía final ante registros simultáneos)
+  ↓
+5. Asignar rol USER — SIEMPRE. El DTO de registro no tiene campo "role":
+   si el cliente envía {"role":"ADMIN"}, se ignora.
+  ↓
+6. 201 Created con UserResponse (id, email, name, role…) — nunca password ni passwordHash
+```
+
+Archivos: [`AuthController`](src/AuthApi/Auth/AuthController.cs) →
+[`AuthService.RegisterAsync`](src/AuthApi/Auth/AuthService.cs) →
+[`UserService.CreateAsync`](src/AuthApi/Users/UserService.cs) →
+[`BcryptPasswordHasher`](src/AuthApi/Auth/Passwords/BcryptPasswordHasher.cs).
+
+**¿Por qué BCrypt y no SHA-256?** SHA-256 es rápido: una GPU calcula miles de millones por
+segundo, así que un hash SHA-256 de una contraseña filtrado se rompe por fuerza bruta. BCrypt es
+lento a propósito (costo `2^BCRYPT_WORK_FACTOR`) y agrega un *salt* aleatorio por usuario, por lo
+que dos contraseñas iguales producen hashes distintos y las *rainbow tables* no sirven.
+El hash guardado (`$2a$12$<salt><hash>`) ya contiene algoritmo, costo y salt.
+
+**Nota sobre enumeración de usuarios:** responder `409` a un email existente revela que ese email
+está registrado. Es el compromiso habitual en un registro (la alternativa es confirmar por email
+siempre). En login y recuperación de contraseña, en cambio, las respuestas no revelan si el
+usuario existe.
