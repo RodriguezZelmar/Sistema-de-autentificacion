@@ -11,3 +11,6 @@ public sealed record UserResponse(Guid Id, string Email, string? Name, string Ro
     public static UserResponse From(User user) =>
         new(user.Id, user.Email, user.Name, user.Role, user.IsActive, user.CreatedAt);
 }
+
+/// <summary>Respuesta de /users/me: el usuario y los permisos que le da su rol.</summary>
+public sealed record CurrentUserResponse(UserResponse User, IReadOnlyCollection<string> Permissions);

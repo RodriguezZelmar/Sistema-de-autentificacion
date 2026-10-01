@@ -25,6 +25,8 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [Middleware de autenticación](#middleware-de-autenticación)
 - [Refresh tokens](#refresh-tokens)
 - [Flujo de logout](#flujo-de-logout)
+- [Roles y permisos](#roles-y-permisos)
+- [Autorización y 401 vs 403](#autorización-y-401-vs-403)
 
 ---
 
@@ -46,7 +48,33 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 Authentication = ¿Quién sos?              Authorization = ¿Qué tenés permitido hacer?
 ```
 
-*(se completa con ejemplos concretos a medida que se implementa)*
+| | Autenticación | Autorización |
+|---|---|---|
+| Pregunta | ¿Quién sos? | ¿Qué tenés permitido hacer? |
+| En este proyecto | Login con email + contraseña → JWT. En cada request, JwtBearer valida el JWT y establece la identidad (`sub`, `role`). | `PermissionAuthorizationHandler` traduce el rol a permisos y verifica el que pide el endpoint. |
+| Cómo se declara | `[Authorize]` | `[RequirePermission(Permissions.UsersDelete)]` |
+| Si falla | **401 Unauthorized** | **403 Forbidden** |
+| Código | [`Auth/Jwt/`](src/AuthApi/Auth/Jwt) | [`Authorization/`](src/AuthApi/Authorization) |
+
+Ejemplo concreto con dos usuarios autenticados, Ana (USER) y el admin (ADMIN):
+
+```text
+GET /users/me           Ana   → 200   autenticación: alcanza con estar logueado
+GET /users              Ana   → 200   autorización: USER tiene users:read
+DELETE /users/{id}      Ana   → 403   autenticada ✔, pero USER NO tiene users:delete
+DELETE /users/{id}      admin → 204   ADMIN tiene users:delete
+DELETE /users/{id}      (sin token) → 401   ni siquiera sabemos quién es
+```
+
+Las dos piezas están separadas en el código y en el pipeline de ASP.NET Core:
+
+```csharp
+app.UseAuthentication();   // 1° ¿quién sos?  → construye HttpContext.User a partir del JWT
+app.UseAuthorization();    // 2° ¿qué podés hacer? → evalúa [Authorize] / [RequirePermission]
+```
+
+La autorización nunca mira el token ni la firma: trabaja sobre la identidad que la autenticación
+ya validó. Y la autenticación no sabe nada de permisos.
 
 ---
 
@@ -364,3 +392,78 @@ POST /auth/logout  { "refreshToken": "..." }
 > Si se necesitara revocación inmediata, las opciones son: una *denylist* de `jti` revocados
 > (en Redis, con TTL igual a la vida del token), o guardar una "versión de sesión" por usuario y
 > compararla en cada request — ambas reintroducen estado y una consulta por request.
+
+---
+
+## Roles y permisos
+
+```text
+Role
+ ↓
+conjunto de permisos
+ ↓
+acción que puede realizar
+```
+
+| Rol | Permisos |
+|---|---|
+| `USER` | `users:read` |
+| `ADMIN` | `users:read`, `users:create`, `users:update`, `users:delete` |
+
+- **Roles** ([`Roles`](src/AuthApi/Authorization/Roles.cs)): se guardan en `User.Role` y viajan en el claim `role` del JWT.
+- **Permisos** ([`Permissions`](src/AuthApi/Authorization/Permissions.cs)): formato `recurso:acción`.
+- **Mapa rol → permisos** ([`RolePermissions`](src/AuthApi/Authorization/RolePermissions.cs)): vive en el código.
+
+¿Por qué los endpoints piden **permisos** y no roles? Con `[Authorize(Roles = "ADMIN")]`, agregar un
+rol `MODERATOR` que también pueda borrar obligaría a modificar cada endpoint. Con permisos, el
+endpoint dice *qué acción* realiza (`users:delete`) y solo cambia el mapa rol → permisos.
+
+¿Por qué el token lleva el **rol** y no la lista de permisos? El token queda chico y el mapa
+rol → permisos se resuelve en el servidor en cada request, así un cambio en el mapa aplica de
+inmediato sin esperar a que expiren los tokens.
+
+¿Por qué el mapa está en código y no en tablas? Porque los permisos están acoplados al código que
+define los endpoints, y no se pidió administrarlos en tiempo de ejecución. Si hiciera falta, se
+pasaría a tablas `Role` / `Permission` / `RolePermission` cambiando solo `RolePermissions`.
+
+`GET /users/me` devuelve los permisos del usuario actual, útil para ver el mapa en acción:
+
+```json
+{ "user": { "email": "ana@example.com", "role": "USER", ... }, "permissions": ["users:read"] }
+```
+
+---
+
+## Autorización y 401 vs 403
+
+El guard de autorización es un atributo:
+
+```csharp
+[HttpDelete("{id:guid}")]
+[RequirePermission(Permissions.UsersDelete)]
+public async Task<IActionResult> Delete(Guid id, ...)
+```
+
+[`RequirePermissionAttribute`](src/AuthApi/Authorization/RequirePermissionAttribute.cs) hereda de
+`[Authorize]` (así que primero exige autenticación) y agrega un `PermissionRequirement`.
+[`PermissionAuthorizationHandler`](src/AuthApi/Authorization/PermissionAuthorizationHandler.cs)
+lee el claim `role` de la identidad ya validada y comprueba si ese rol tiene el permiso.
+
+```text
+Request
+   ↓
+¿Tiene token válido?  ── No ──→ 401 Unauthorized
+   ↓ Sí                          "No sé quién sos" (token ausente, inválido, alterado o expirado).
+   ↓                             Solución: autenticarse (login / refresh).
+¿Tiene el permiso?    ── No ──→ 403 Forbidden
+   ↓ Sí                          "Sé quién sos, pero no podés hacer esto."
+   ↓                             Volver a autenticarse no cambia nada.
+Puede acceder (2xx)
+```
+
+| Código | Significa | Ejemplo en este proyecto |
+|---|---|---|
+| **401 Unauthorized** | Falta autenticación o es inválida. (El nombre del estándar es confuso: en realidad significa *unauthenticated*.) Incluye header `WWW-Authenticate: Bearer`. | `GET /users` sin token, con token expirado o con firma inválida |
+| **403 Forbidden** | La identidad es válida pero no tiene permiso. | `DELETE /users/{id}` con un token de USER |
+
+Ambos devuelven un cuerpo `application/problem+json` (RFC 9457) con el motivo.

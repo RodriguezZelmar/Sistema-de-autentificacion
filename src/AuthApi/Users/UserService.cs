@@ -47,6 +47,9 @@ public sealed class UserService(AppDbContext db, IPasswordHasher hasher, TimePro
         return user;
     }
 
+    public async Task<List<User>> ListAsync(CancellationToken ct) =>
+        await db.Users.AsNoTracking().OrderBy(u => u.CreatedAt).ToListAsync(ct);
+
     public async Task<User> GetByIdAsync(Guid id, CancellationToken ct) =>
         await db.Users.FindAsync([id], ct) ?? throw ApiException.NotFound("User not found.");
 }

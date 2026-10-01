@@ -2,8 +2,10 @@ using AuthApi.Auth;
 using AuthApi.Auth.Jwt;
 using AuthApi.Auth.Passwords;
 using AuthApi.Auth.Tokens;
+using AuthApi.Authorization;
 using AuthApi.Users;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 
 namespace AuthApi.Config;
@@ -30,6 +32,7 @@ public static class AuthModuleExtensions
 
         // Authorization: ¿qué tenés permitido hacer?
         services.AddAuthorization();
+        services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
         services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
         services.AddSingleton<JwtTokenService>();
