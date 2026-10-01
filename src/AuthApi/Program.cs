@@ -1,5 +1,7 @@
 using AuthApi.Common;
 using AuthApi.Config;
+using AuthApi.Data;
+using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 
 // En desarrollo, carga las variables definidas en el archivo .env (si existe).
@@ -14,9 +16,14 @@ builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
 
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite(builder.Configuration["DATABASE_CONNECTION"] ?? "Data Source=auth.db"));
+
 builder.Services.AddAuthModule(builder.Configuration);
 
 var app = builder.Build();
+
+await DatabaseInitializer.InitializeAsync(app.Services);
 
 app.UseExceptionHandler();
 
