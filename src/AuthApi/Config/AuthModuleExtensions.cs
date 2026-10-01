@@ -37,6 +37,7 @@ public static class AuthModuleExtensions
         services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
         services.AddSingleton<JwtTokenService>();
         services.AddScoped<RefreshTokenService>();
+        services.AddScoped<PasswordResetService>();
         services.AddScoped<UserService>();
         services.AddScoped<AuthService>();
 

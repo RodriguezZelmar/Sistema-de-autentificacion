@@ -3,9 +3,11 @@ using AuthApi.Auth.Passwords;
 using AuthApi.Auth.Tokens;
 using AuthApi.Authorization;
 using AuthApi.Common;
+using AuthApi.Config;
 using AuthApi.Data;
 using AuthApi.Users;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace AuthApi.Auth;
 
@@ -19,6 +21,8 @@ public sealed class AuthService(
     IPasswordHasher hasher,
     JwtTokenService jwt,
     RefreshTokenService refreshTokens,
+    PasswordResetService passwordResets,
+    IOptions<AuthOptions> options,
     TimeProvider time,
     ILogger<AuthService> logger)
 {
@@ -75,6 +79,21 @@ public sealed class AuthService(
     /// </summary>
     public Task LogoutAsync(RefreshTokenRequest request, CancellationToken ct) =>
         refreshTokens.RevokeAsync(request.RefreshToken, ct);
+
+    public async Task<ForgotPasswordResponse> ForgotPasswordAsync(ForgotPasswordRequest request, CancellationToken ct)
+    {
+        const string message = "If the email is registered, password reset instructions have been sent.";
+        var issued = await passwordResets.RequestAsync(request.Email, ct);
+
+        // SIMPLIFICACIÓN EDUCATIVA: en modo demo se devuelve el token para poder probar el flujo sin email.
+        // En producción (PASSWORD_RESET_EXPOSE_TOKEN=false) la respuesta es idéntica exista o no el usuario.
+        return issued is not null && options.Value.ExposePasswordResetToken
+            ? new ForgotPasswordResponse(message, issued.Token, issued.ExpiresAt)
+            : new ForgotPasswordResponse(message);
+    }
+
+    public Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken ct) =>
+        passwordResets.ResetAsync(request.Token, request.NewPassword, ct);
 
     private TokenResponse ToTokenResponse(AccessToken accessToken, IssuedRefreshToken refreshToken) => new(
         accessToken.Token,

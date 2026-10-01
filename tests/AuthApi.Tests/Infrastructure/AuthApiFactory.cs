@@ -14,7 +14,7 @@ namespace AuthApi.Tests.Infrastructure;
 /// - un reloj falso (FakeTimeProvider) para simular el paso del tiempo y probar expiraciones;
 /// - configuración de test que pisa cualquier valor de un .env local.
 /// </summary>
-public sealed class AuthApiFactory : WebApplicationFactory<Program>
+public sealed class AuthApiFactory(IDictionary<string, string?>? overrides = null) : WebApplicationFactory<Program>
 {
     public const string JwtSecret = "test-only-secret-key-that-is-long-enough-1234567890";
     public const string AdminEmail = "admin@test.local";
@@ -43,6 +43,9 @@ public sealed class AuthApiFactory : WebApplicationFactory<Program>
             ["ADMIN_EMAIL"] = AdminEmail,
             ["ADMIN_PASSWORD"] = AdminPassword,
         }));
+
+        if (overrides is not null)
+            builder.ConfigureAppConfiguration(config => config.AddInMemoryCollection(overrides));
 
         builder.ConfigureServices(services =>
         {

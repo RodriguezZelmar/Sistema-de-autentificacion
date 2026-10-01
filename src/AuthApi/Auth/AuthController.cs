@@ -49,4 +49,23 @@ public sealed class AuthController(AuthService auth) : ControllerBase
         await auth.LogoutAsync(request, ct);
         return NoContent();
     }
+
+    /// <summary>
+    /// Inicia la recuperación de contraseña (SIMULADA: no se envía email).
+    /// Responde siempre 200 con el mismo mensaje, exista o no el email.
+    /// </summary>
+    [HttpPost("forgot-password")]
+    [ProducesResponseType<ForgotPasswordResponse>(StatusCodes.Status200OK)]
+    public async Task<ForgotPasswordResponse> ForgotPassword(ForgotPasswordRequest request, CancellationToken ct) =>
+        await auth.ForgotPasswordAsync(request, ct);
+
+    /// <summary>Cambia la contraseña usando el token de recuperación (válido una sola vez).</summary>
+    [HttpPost("reset-password")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> ResetPassword(ResetPasswordRequest request, CancellationToken ct)
+    {
+        await auth.ResetPasswordAsync(request, ct);
+        return NoContent();
+    }
 }

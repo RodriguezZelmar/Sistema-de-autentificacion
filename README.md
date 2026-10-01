@@ -28,6 +28,7 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [Roles y permisos](#roles-y-permisos)
 - [Autorización y 401 vs 403](#autorización-y-401-vs-403)
 - [Usuario administrador de demo](#usuario-administrador-de-demo)
+- [Recuperación de contraseña](#recuperación-de-contraseña)
 
 ---
 
@@ -493,3 +494,59 @@ Reglas de los endpoints de administración ([`UserService`](src/AuthApi/Users/Us
   usando la API debe volver a hacer login, y su nuevo token reflejará el rol nuevo. Su access token
   actual sigue vigente hasta expirar (máx. 15 min) — la misma limitación que en logout.
 - Al eliminar un usuario, sus refresh tokens y tokens de recuperación se borran en cascada.
+
+---
+
+## Recuperación de contraseña
+
+> ⚠️ **Simulada.** En una aplicación real el token se envía **por email** (como parte de un link,
+> p. ej. `https://app.com/reset?token=...`) y nunca aparece en la respuesta HTTP. Devolverlo en la
+> respuesta es solo una simplificación de este proyecto educativo para poder probar el flujo sin
+> un servidor de correo, y se controla con `PASSWORD_RESET_EXPOSE_TOKEN` (en producción: `false`).
+
+```text
+POST /auth/forgot-password  { "email" }
+  ↓
+1. ¿Existe un usuario activo con ese email?
+     No → 200 con el mensaje genérico (no se revela si el email existe)
+  ↓ Sí
+2. Borrar los tokens anteriores sin usar de ese usuario (solo vale el último pedido)
+  ↓
+3. Generar token aleatorio (512 bits), guardar SOLO su hash, con ExpiresAt = ahora + 15 min
+  ↓
+4. [App real: enviar email]   [Demo: incluir resetToken en la respuesta]
+  ↓
+5. 200 { "message": "If the email is registered, ...", "resetToken"?, "resetTokenExpiresAt"? }
+
+
+POST /auth/reset-password  { "token", "newPassword" }
+  ↓
+1. Validar newPassword con la política de contraseñas                → 400
+  ↓
+2. Buscar el token por su hash. ¿Existe, no expiró y no fue usado?   → 400 si no
+  ↓
+3. En una transacción:
+   a. Marcar UsedAt de forma atómica (UPDATE ... WHERE UsedAt IS NULL):
+      si dos requests usan el mismo token a la vez, solo uno gana
+   b. Guardar el hash BCrypt de la nueva contraseña
+   c. Revocar TODOS los refresh tokens del usuario (cierra sesiones abiertas
+      con la contraseña vieja, por si eran de un atacante)
+  ↓
+4. 204 No Content → el usuario hace login con la contraseña nueva
+```
+
+El token de recuperación cumple los requisitos:
+
+| Requisito | Implementación ([`PasswordResetService`](src/AuthApi/Auth/Tokens/PasswordResetService.cs)) |
+|---|---|
+| Tiene expiración | `ExpiresAt` (15 min, `PASSWORD_RESET_TOKEN_MINUTES`) |
+| Es de un solo uso | `UsedAt` se completa al usarlo; un segundo uso → 400 |
+| Se invalida después de usarse | Ídem, y además pedir uno nuevo borra los anteriores sin usar |
+| Está asociado al usuario | `UserId` (FK con borrado en cascada) |
+| No se guarda en texto plano | Solo el hash SHA-256 |
+
+Tests: [`PasswordResetTests`](tests/AuthApi.Tests/PasswordResetTests.cs) (válido, expirado, ya usado,
+desconocido, revoca sesiones, modo producción sin token en la respuesta…).
+
+Simplificación conocida: en modo demo, que la respuesta incluya o no el token revela si el email existe.
+Con `PASSWORD_RESET_EXPOSE_TOKEN=false` la respuesta es idéntica en ambos casos.
