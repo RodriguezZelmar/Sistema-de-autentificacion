@@ -8,4 +8,10 @@ public interface IPasswordHasher
 {
     string Hash(string password);
     bool Verify(string password, string passwordHash);
+
+    /// <summary>
+    /// Hash válido de una contraseña aleatoria. El login lo verifica cuando el email no existe,
+    /// para tardar lo mismo que con un usuario real y no revelar qué emails están registrados (timing attack).
+    /// </summary>
+    string DummyHash { get; }
 }

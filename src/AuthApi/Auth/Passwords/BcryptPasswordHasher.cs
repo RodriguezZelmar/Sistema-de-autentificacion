@@ -13,6 +13,9 @@ namespace AuthApi.Auth.Passwords;
 public sealed class BcryptPasswordHasher(IOptions<AuthOptions> options) : IPasswordHasher
 {
     private readonly int _workFactor = options.Value.BcryptWorkFactor;
+    private string? _dummyHash;
+
+    public string DummyHash => _dummyHash ??= Hash(Guid.NewGuid().ToString());
 
     public string Hash(string password) => BCrypt.Net.BCrypt.HashPassword(password, _workFactor);
 

@@ -11,7 +11,7 @@ DotNetEnv.Env.NoClobber().TraversePath().Load();
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options => options.AddDocumentTransformer<OpenApiBearerTransformer>());
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
@@ -38,6 +38,9 @@ else
 {
     app.UseHttpsRedirection();
 }
+
+app.UseAuthentication();   // 1° ¿quién sos?  (lee y valida el JWT)
+app.UseAuthorization();    // 2° ¿qué podés hacer? (aplica [Authorize] / permisos)
 
 app.MapControllers();
 

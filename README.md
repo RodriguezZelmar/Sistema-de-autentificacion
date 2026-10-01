@@ -20,6 +20,9 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [Modelo de datos](#modelo-de-datos)
 - [Endpoints](#endpoints)
 - [Flujo de registro](#flujo-de-registro)
+- [Flujo de login](#flujo-de-login)
+- [JWT](#jwt)
+- [Middleware de autenticación](#middleware-de-autenticación)
 
 ---
 
@@ -162,3 +165,111 @@ El hash guardado (`$2a$12$<salt><hash>`) ya contiene algoritmo, costo y salt.
 está registrado. Es el compromiso habitual en un registro (la alternativa es confirmar por email
 siempre). En login y recuperación de contraseña, en cambio, las respuestas no revelan si el
 usuario existe.
+
+---
+
+## Flujo de login
+
+```text
+POST /auth/login  { "email", "password" }
+  ↓
+1. Buscar el usuario por email normalizado
+  ↓
+2. BCrypt.Verify(password, passwordHash)
+   - Si el usuario NO existe se verifica igual contra un hash ficticio:
+     misma demora y mismo mensaje → no se puede averiguar qué emails existen
+   - Falla → 401 "Invalid email or password."
+  ↓
+3. ¿IsActive? No → 403 "This account is disabled."
+  ↓
+4. Generar access token (JWT, 15 min)
+  ↓
+5. 200 { accessToken, tokenType: "Bearer", expiresIn, accessTokenExpiresAt, ... }
+```
+
+---
+
+## JWT
+
+### ¿Qué es?
+
+Un **JSON Web Token** es un string con tres partes en Base64Url separadas por puntos:
+
+```text
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9 . eyJzdWIiOiI4ZjQ...In0 . 3q2-7_Yk1sX...
+└──────────── header ────────────┘   └──── payload ────┘   └─ signature ─┘
+```
+
+| Parte | Contenido en este proyecto |
+|---|---|
+| **Header** | `{"alg":"HS256","typ":"JWT"}` — algoritmo de firma |
+| **Payload** | `sub` (id del usuario), `role`, `jti` (id único del token), `iat`, `nbf`, `exp` (expiración), `iss` (quién lo emitió), `aud` (para quién) |
+| **Signature** | `HMACSHA256(base64url(header) + "." + base64url(payload), JWT_SECRET)` |
+
+### ¿Cómo se valida? ([`JwtTokenService.CreateValidationParameters`](src/AuthApi/Auth/Jwt/JwtTokenService.cs))
+
+1. Tiene formato `header.payload.signature`.
+2. El algoritmo es exactamente `HS256` (se rechaza `"alg":"none"` y cualquier otro).
+3. La **firma** recalculada con `JWT_SECRET` coincide → nadie modificó el payload.
+4. `exp` no pasó (con 30 s de tolerancia por diferencias de reloj) y `nbf` ya llegó.
+5. `iss` y `aud` son los esperados.
+
+Si cualquier paso falla → **401**. Hay tests para cada caso: sin token, token malformado,
+expirado, firmado con otra clave, payload alterado (`USER` → `ADMIN`) y `alg: none`
+([`JwtAuthenticationTests`](tests/AuthApi.Tests/JwtAuthenticationTests.cs)).
+
+### ¿Qué NO debe ir en el payload?
+
+El payload está **codificado, no cifrado**: cualquiera que tenga el token puede leerlo
+(pegalo en jwt.io). Por eso nunca debe contener contraseñas, hashes, secretos, datos de pago
+ni datos personales innecesarios. Este proyecto solo incluye el id y el rol (ni siquiera el email).
+
+### Firmar ≠ cifrar
+
+- **Firmar** (lo que hace este proyecto, JWS): garantiza **integridad y autenticidad** — el token lo
+  emitió quien conoce el secreto y no fue modificado. El contenido sigue siendo visible.
+- **Cifrar** (JWE): garantiza **confidencialidad** — el contenido no se puede leer sin la clave.
+
+Un JWT firmado es como una carta con un sello de lacre: todos pueden leerla, pero nadie puede
+alterarla sin romper el sello.
+
+### Un JWT no es una contraseña
+
+Es una **credencial temporal derivada** del login: prueba que alguien se autenticó hace poco.
+Diferencias clave:
+- **Expira** (15 min) y no puede cambiarse ni "resetearse" como una contraseña.
+- Quien lo tenga puede usarlo (*bearer* = portador): por eso viaja solo por HTTPS, vive poco y no se loguea.
+- No se guarda en el servidor: el servidor solo verifica la firma (es *stateless*). La contraseña,
+  en cambio, se guarda (hasheada) y es el secreto de largo plazo del usuario.
+
+### Secretos
+
+`JWT_SECRET` se lee de variables de entorno (o `.env` en desarrollo), nunca está en el código.
+La aplicación **no arranca** si falta o tiene menos de 32 caracteres (256 bits, requisito de HS256).
+
+---
+
+## Middleware de autenticación
+
+ASP.NET Core ya trae el middleware: `app.UseAuthentication()` con el handler **JwtBearer**,
+configurado en [`JwtBearerSetup`](src/AuthApi/Auth/Jwt/JwtBearerSetup.cs). En cada request:
+
+```text
+1. Obtiene el token del header  Authorization: Bearer <token>
+2. Lo valida (formato + algoritmo)
+3. Verifica la firma con JWT_SECRET
+4. Verifica expiración (exp/nbf), issuer y audience
+5. Obtiene la identidad → HttpContext.User con los claims (sub, role)
+6. Si el endpoint tiene [Authorize] y la identidad es válida → continúa
+7. Si no → 401 Unauthorized (ProblemDetails con el motivo: falta, inválido o expirado)
+```
+
+Un controller protegido no hace nada especial: solo declara `[Authorize]` y lee el id del usuario
+con `User.GetUserId()`:
+
+```csharp
+[HttpGet("me")]
+[Authorize]   // solo AUTENTICACIÓN: cualquier usuario logueado
+public async Task<UserResponse> Me(CancellationToken ct) =>
+    UserResponse.From(await users.GetByIdAsync(User.GetUserId(), ct));
+```

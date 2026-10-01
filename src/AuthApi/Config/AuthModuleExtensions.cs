@@ -1,6 +1,9 @@
 using AuthApi.Auth;
+using AuthApi.Auth.Jwt;
 using AuthApi.Auth.Passwords;
 using AuthApi.Users;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Options;
 
 namespace AuthApi.Config;
 
@@ -20,7 +23,15 @@ public static class AuthModuleExtensions
                 "Token lifetimes must be positive.")
             .ValidateOnStart();
 
+        // Authentication: ¿quién sos? → JwtBearer valida el access token de cada request.
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+        services.AddSingleton<IConfigureOptions<JwtBearerOptions>, JwtBearerSetup>();
+
+        // Authorization: ¿qué tenés permitido hacer?
+        services.AddAuthorization();
+
         services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
+        services.AddSingleton<JwtTokenService>();
         services.AddScoped<UserService>();
         services.AddScoped<AuthService>();
 

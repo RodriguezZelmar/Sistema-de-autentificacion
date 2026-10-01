@@ -21,4 +21,12 @@ public sealed class AuthController(AuthService auth) : ControllerBase
         var user = await auth.RegisterAsync(request, ct);
         return Created($"/users/{user.Id}", user);
     }
+
+    /// <summary>Inicia sesión y devuelve las credenciales para usar la API.</summary>
+    [HttpPost("login")]
+    [ProducesResponseType<TokenResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    public async Task<TokenResponse> Login(LoginRequest request, CancellationToken ct) =>
+        await auth.LoginAsync(request, ct);
 }
