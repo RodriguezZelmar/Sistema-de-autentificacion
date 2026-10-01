@@ -24,6 +24,7 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [JWT](#jwt)
 - [Middleware de autenticación](#middleware-de-autenticación)
 - [Refresh tokens](#refresh-tokens)
+- [Flujo de logout](#flujo-de-logout)
 
 ---
 
@@ -337,3 +338,29 @@ POST /auth/refresh  { "refreshToken": "..." }
 
 Simplificación: el refresh token viaja en el body JSON. En una aplicación web real conviene
 enviarlo en una cookie `HttpOnly; Secure; SameSite=Strict` para que JavaScript no pueda leerlo.
+
+---
+
+## Flujo de logout
+
+```text
+POST /auth/logout  { "refreshToken": "..." }
+  ↓
+1. Buscar el refresh token por su hash
+  ↓
+2. Si existe y está activo → RevokedAt = ahora
+  ↓
+3. 204 No Content  (siempre: es idempotente y no revela si el token existía)
+```
+
+- Solo cierra **esa** sesión (ese dispositivo); las otras sesiones del usuario siguen activas.
+- No exige access token: tener el refresh token alcanza, y así se puede cerrar sesión aunque el
+  access token ya haya expirado.
+
+> ⚠️ **Limitación importante:** el access token JWT ya emitido **sigue siendo válido hasta su
+> expiración** (máximo 15 minutos), porque es stateless: el servidor no consulta la base para
+> validarlo. Hay un test que documenta este comportamiento
+> (`Logout_DoesNotInvalidateAlreadyIssuedAccessToken`). Por eso el access token dura poco.
+> Si se necesitara revocación inmediata, las opciones son: una *denylist* de `jti` revocados
+> (en Redis, con TTL igual a la vida del token), o guardar una "versión de sesión" por usuario y
+> compararla en cada request — ambas reintroducen estado y una consulta por request.

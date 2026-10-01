@@ -69,6 +69,13 @@ public sealed class AuthService(
         return ToTokenResponse(jwt.CreateAccessToken(user), newRefreshToken);
     }
 
+    /// <summary>
+    /// Logout: revoca el refresh token → la sesión ya no puede renovarse.
+    /// El access token ya emitido sigue siendo válido hasta que expire (máx. 15 min), porque un JWT es stateless.
+    /// </summary>
+    public Task LogoutAsync(RefreshTokenRequest request, CancellationToken ct) =>
+        refreshTokens.RevokeAsync(request.RefreshToken, ct);
+
     private TokenResponse ToTokenResponse(AccessToken accessToken, IssuedRefreshToken refreshToken) => new(
         accessToken.Token,
         "Bearer",

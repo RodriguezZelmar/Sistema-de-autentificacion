@@ -36,4 +36,17 @@ public sealed class AuthController(AuthService auth) : ControllerBase
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
     public async Task<TokenResponse> Refresh(RefreshTokenRequest request, CancellationToken ct) =>
         await auth.RefreshAsync(request, ct);
+
+    /// <summary>
+    /// Revoca el refresh token. No exige access token: poseer el refresh token alcanza,
+    /// y así se puede cerrar sesión aunque el access token ya haya expirado.
+    /// Siempre responde 204 (idempotente, y no revela si el token existía).
+    /// </summary>
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout(RefreshTokenRequest request, CancellationToken ct)
+    {
+        await auth.LogoutAsync(request, ct);
+        return NoContent();
+    }
 }
