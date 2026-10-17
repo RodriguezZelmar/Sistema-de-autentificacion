@@ -1,0 +1,11 @@
+{
+  // VS Code sugiere instalarlas al abrir el proyecto.
+  "recommendations": [
+    "ms-dotnettools.csdevkit",
+    "ms-dotnettools.csharp",
+    "editorconfig.editorconfig",
+    "bierner.markdown-mermaid",
+    "humao.rest-client",
+    "mikestead.dotenv"
+  ]
+}

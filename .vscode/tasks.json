@@ -1,0 +1,78 @@
+{
+  // Terminal > Ejecutar tarea… (Ctrl+Shift+B compila la solución).
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/AuthApi.slnx",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "test",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "test",
+        "${workspaceFolder}/AuthApi.slnx"
+      ],
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "clean",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "clean",
+        "${workspaceFolder}/AuthApi.slnx"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "watch",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "watch",
+        "run",
+        "--project",
+        "${workspaceFolder}/src/AuthApi",
+        "--launch-profile",
+        "http"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "base": "$msCompile",
+        "background": {
+          "activeBegins": true,
+          "beginsPattern": "dotnet watch",
+          "endsPattern": "Now listening on|Application started"
+        }
+      }
+    },
+    {
+      "label": "restaurar herramientas (dotnet-ef)",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "tool",
+        "restore"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

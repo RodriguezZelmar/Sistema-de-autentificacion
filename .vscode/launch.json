@@ -1,0 +1,25 @@
+{
+  // Ejecutar y depurar (F5).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API de autenticación",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build",
+      "program": "${workspaceFolder}/src/AuthApi/bin/Debug/net10.0/AuthApi.dll",
+      "cwd": "${workspaceFolder}/src/AuthApi",
+      "console": "integratedTerminal",
+      "stopAtEntry": false,
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5080"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "Now listening on:\\s+(https?://\\S+)",
+        "uriFormat": "%s/scalar"
+      }
+    }
+  ]
+}

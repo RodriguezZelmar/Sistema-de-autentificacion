@@ -1,0 +1,19 @@
+{
+  // Configuración del editor compartida por el proyecto.
+  "dotnet.defaultSolution": "AuthApi.slnx",
+  "editor.formatOnSave": true,
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "[csharp]": {
+    "editor.defaultFormatter": "ms-dotnettools.csharp"
+  },
+  "files.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/TestResults": true
+  },
+  "search.exclude": {
+    "**/Migrations/*.Designer.cs": true,
+    "**/*.db": true
+  }
+}

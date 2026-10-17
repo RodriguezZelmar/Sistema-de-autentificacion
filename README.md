@@ -32,6 +32,7 @@ No es una aplicación: es un **módulo base** pensado para incorporarse a otros 
 - [Seguridad](#seguridad)
 - [Variables de entorno](#variables-de-entorno)
 - [Cómo ejecutar](#cómo-ejecutar)
+- [Trabajar con VS Code](#trabajar-con-vs-code)
 - [Cómo ejecutar los tests](#cómo-ejecutar-los-tests)
 - [Cómo probar la API](#cómo-probar-la-api)
 - [Reutilizar el módulo en otro proyecto](#reutilizar-el-módulo-en-otro-proyecto)
@@ -668,6 +669,16 @@ Las migraciones también pueden aplicarse a mano con la herramienta local de EF 
 dotnet tool restore
 dotnet ef database update --project src/AuthApi
 ```
+
+---
+
+## Trabajar con VS Code
+
+Abrí `AuthApi.code-workspace` (doble clic, o `code AuthApi.code-workspace`) y aceptá las extensiones recomendadas
+(C# Dev Kit, REST Client, DotENV, EditorConfig). La carpeta `.vscode/` del repositorio incluye:
+
+- **Ctrl+Shift+B** — compila la solución (tarea `build`); en **Terminal → Ejecutar tarea…** están también `test`, `clean`, `watch` y la restauración de `dotnet-ef`.
+- **F5** — ejecuta `AuthApi` con el depurador en http://localhost:5080 (lee el `.env`) y abre Scalar. `requests.http` se puede usar con la extensión REST Client.
 
 ---
 
